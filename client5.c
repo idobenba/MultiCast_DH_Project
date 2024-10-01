@@ -106,84 +106,70 @@ void *TCP_communication(void *arg) {
         
         switch (type){
 
-            case 1: 
-                // type WELCOME
-                int key, g, p, shared_key, client_key, server_key;
-                // Extract key, g, and p from the welcome message
-                sscanf(buffer, "Message Type:(1)WELCOME, server key: %d, p: %d, g: %d", &server_key, &p, &g);
+           case 1: {
+    int g, p, server_key,b;
+    // Extract key, g, and p from the welcome message
+    sscanf(buffer, "Message Type:(1)WELCOME, server key: %d, p: %d, g: %d", &server_key, &p, &g);
 
-                // Generate b, calculate g^ab mod p
-                srand(time(0));
-                int b = 3+ rand() %10 ;
-                client_key = (int)pow(g, b) % p;
-                shared_key = ((int)pow(server_key, b)) % p;
-                args-> shared_key = shared_key;
-                printf("Generated Integer b: %d\nclient key: %d, server key: %d, shared key:%d\n", b, client_key, server_key, shared_key);
+    srand(time(0));
+    do{
+    b = 3 + rand() % 10;
+    } while ( b<=0 );
+   
+    args->client_key = (int)pow(g, b) % p;
+    args->shared_key = ((int)pow(server_key, b)) % p;
 
-                // Send key to server
-                char key_msg[BUFFER_SIZE];
-                sprintf(key_msg, "Message Type:(2)KEY: %d", client_key); // type 2 - KEY
-                printf("--> Send: %s\n", key_msg);
-                send(sock, key_msg, strlen(key_msg), 0);  // Send g^b to server
-                
-                memset(buffer, 0, BUFFER_SIZE);
+    printf("Generated Integer b: %d\nclient key: %d, server key: %d, shared key:%d\n", b, args->client_key, server_key, args->shared_key);
 
-                break;
+    // Send key to server
+    char key_msg[BUFFER_SIZE];
+    sprintf(key_msg, "Message Type:(2)KEY: %d", args->client_key);
+    send(sock, key_msg, strlen(key_msg), 0);
+
+    memset(buffer, 0, BUFFER_SIZE);
+}
+break;
             
 
-            case 3: 
-                // type MC KEY
-                int sleep_flag = 0;
-                int encrypted_mc_key;
-                char answer= 'N';
-                char msg_buff[BUFFER_SIZE], input_msg[BUFFER_SIZE], encrypt_msg[BUFFER_SIZE];
+            case 3: {
+    int sleep_flag = 0;
+    int encrypted_mc_key;
+    sscanf(buffer, "Message Type:(3)MC_KEY: %d", &encrypted_mc_key);
+    args->mcst_key = encrypted_mc_key ^ args->shared_key;
+    global_multicast_key = args->mcst_key;
 
-                sscanf(buffer, "Message Type:(3)MC_KEY: %d", &encrypted_mc_key);
-                int multicast_key = encrypted_mc_key ^ (args->shared_key);
-                args-> mcst_key= multicast_key;
-                global_multicast_key = multicast_key;
+    printf("Decrypted multicast key: %d\n", args->mcst_key);
+    printf("Client successfully switched keys\n");
 
-                printf("Decrypted multicast key: %d\n", multicast_key);
-                printf("Client successfully switched keys\n");
-                
-                memset(buffer, 0, BUFFER_SIZE);
+    memset(buffer, 0, BUFFER_SIZE);
 
-                while (1)
-                {
-                    if (sleep_flag){
-                        sleep(5);
-                    }
-                    sleep_flag = 1;
-                    printf("If you want to send encrypt message to the group press y: \n");
-                    
-                    scanf(" %c", &answer);
-                    use_flag = 1;
-                    if(answer == 'y'){
-                        printf("Enter your message: \n");
-                        scanf("%s", input_msg); 
-                        strcpy(encrypt_msg, encrypt(input_msg, args->shared_key));  // Encrypt the message using the shared key
-                        //memset(msg_buff, 0, BUFFER_SIZE);
-                        char msg_buff_new[BUFFER_SIZE];
-                        int max = 100;
-                        char tranc_msg[max + 1];
-                        printf("this is enctypppy: %s\n",encrypt_msg);
-                        strncpy(tranc_msg,encrypt_msg,max);
-                        tranc_msg[max] = '\0';
-                        snprintf(msg_buff_new,sizeof(msg_buff_new),"Message Type:(4): The Encrypt Message is: %s\n", tranc_msg);
-                        //sprintf(msg_buff, "Message Type:(4)Multicast MSG, DATA: %s", encrypt_msg); 
-                        printf("--> Send: %s\n", msg_buff_new);
-                        send(sock, msg_buff_new, strlen(msg_buff_new), 0);  // Send encrypt msg to the server
-                        use_flag =0;
-                        
-                    }
+    while (1) {
+        if (sleep_flag) {
+            sleep(5);
+        }
+        sleep_flag = 1;
 
-                    else{
-                        printf("wrong answer\nIf you want to send encrypt message to the group press Y: \n");
-                        scanf(" %c", &answer);
-                    }
-                }
+        char answer = 'N';
+        printf("If you want to send an encrypted message to the group press y: ");
+        scanf(" %c", &answer);
 
-                break;
+        if (answer == 'y') {
+            char input_msg[BUFFER_SIZE];
+            printf("Enter your message: ");
+            scanf("%s", input_msg);
+
+            char encrypt_msg[BUFFER_SIZE];
+            strcpy(encrypt_msg, encrypt(input_msg, args->shared_key));
+
+            char msg_buff_new[BUFFER_SIZE];
+            snprintf(msg_buff_new, sizeof(msg_buff_new), "Message Type:(4): The Encrypt Message is: %s\n", encrypt_msg);
+            send(sock, msg_buff_new, strlen(msg_buff_new), 0);
+        } else {
+            printf("Invalid input. Try again.\n");
+        }
+    }
+}
+break;
 
 
             case 7:
@@ -196,8 +182,9 @@ void *TCP_communication(void *arg) {
 
                 break;
 
-            case 99:
+            case 5:
                 printf("Thank you for your Participate and Come back soon!");
+                exit(0);
                 
             default:
                 printf("Unknown message type: %d\n", type);
@@ -212,8 +199,8 @@ void *send_keep_alive(void *arg) {
     while (1) {
         sleep(KEEP_ALIVE); 
         char keep_alive_msg[] = "Message Type:(9)KEEP ALIVE";  // type 9 - keep alive
-        if (use_flag){
         send(sock, keep_alive_msg, strlen(keep_alive_msg), 0);  // Send keep alive message to server
+        if (use_flag){
         printf("\n--> Send: %s\n", keep_alive_msg);
         }
     }
@@ -227,7 +214,7 @@ void *UDP_communication(void *arg) {
     int udp_sock = *(int *)arg, src_addr_len, len;
     struct sockaddr_in udp_addr, server_addr;
     struct ip_mreq_1 mreq;
-    char udp_buffer[BUFFER_SIZE], decrypt_msg[BUFFER_SIZE];
+    char udp_buffer[BUFFER_SIZE], decrypt_msg[BUFFER_SIZE],ecrpt_buff[BUFFER_SIZE],remaining_message[BUFFER_SIZE];
     int true = 1;
     struct hostent *host_entry_ptr;
     
@@ -277,12 +264,17 @@ void *UDP_communication(void *arg) {
         }
 
         udp_buffer[len] = '\0';
+        ecrpt_buff[len] = '\0';
+        remaining_message[len] = '\0';
+        int id_pc;
         printf("\n<-- Received: UDP message: %s\n", udp_buffer);
-    
-    
-        decrypt(udp_buffer, global_multicast_key, decrypt_msg);
+        sscanf(ecrpt_buff, "Message Type:(8)MC_MSG: from: %d %s", &id_pc, remaining_message);
 
+        decrypt(remaining_message, global_multicast_key, decrypt_msg);
+        printf("UDP message From PC: %d\n", id_pc);
         printf("Decrypt UDP message: %s\n", decrypt_msg);
+        printf("If you want to send an encrypted message to the group press y: ");
+
         
         }
 
